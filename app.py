@@ -4,6 +4,7 @@ from utils.quiz_generator import generate_quiz
 from utils.tts import speak
 import random
 import io
+import os
 
 app = Flask(__name__)
 
@@ -11,6 +12,9 @@ app = Flask(__name__)
 slangs = load_slang_data()
 history = load_user_history()
 today = get_today_key()
+
+port = int(os.environ.get("PORT", 5000))
+app.run(host="0.0.0.0", port=port)
 
 # 오늘 히스토리 초기화
 if today not in history:
