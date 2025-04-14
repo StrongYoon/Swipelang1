@@ -1,114 +1,86 @@
-import streamlit as st
-from utils.data_manager import *
+from flask import Flask, jsonify, request, send_file
+from utils.data_manager import load_slang_data, load_user_history, save_user_history, get_today_key
 from utils.quiz_generator import generate_quiz
-from utils.tts import speak_in_browser
+from utils.tts import speak  # 기존 speak 함수 수정 필요
 import random
-import pandas as pd
+import io
 
-st.set_page_config(page_title="SwipeLang", page_icon="📚", layout="centered")
+app = Flask(__name__)
 
 slangs = load_slang_data()
 history = load_user_history()
 today = get_today_key()
 
+# 초기화
 if today not in history:
     history[today] = {"known": [], "review": [], "viewed": []}
     save_user_history(history)
 
-available_slangs = [s for s in slangs if s["phrase"] not in history[today]["viewed"]]
 
-# ✅ 세션 상태 초기화
-if "current" not in st.session_state and available_slangs:
-    st.session_state.current = random.choice(available_slangs)
+@app.route("/")
+def index():
+    return jsonify({"message": "SwipeLang Flask API is running!"})
 
-if "show_meaning" not in st.session_state:
-    st.session_state.show_meaning = False
 
-if "quiz_active" not in st.session_state:
-    st.session_state.quiz_active = False
+@app.route("/slang/today")
+def get_today_slang():
+    available = [s for s in slangs if s["phrase"] not in history[today]["viewed"]]
+    if not available:
+        return jsonify({"message": "오늘 학습 가능한 슬랭이 없습니다."}), 404
+    current = random.choice(available)
+    history[today]["viewed"].append(current["phrase"])
+    save_user_history(history)
+    return jsonify(current)
 
-if "quiz" not in st.session_state:
-    st.session_state.quiz = None
 
-if "quiz_result" not in st.session_state:
-    st.session_state.quiz_result = None
+@app.route("/slang/known")
+def get_known():
+    return jsonify(history[today]["known"])
 
-# ✅ UI 시작
-st.markdown("<h1 style='text-align: left; font-size: 40px;'>📚 SwipeLang</h1>", unsafe_allow_html=True)
-st.markdown("### 오늘의 슬랭")
 
-if available_slangs:
-    current = st.session_state.current
-    st.write(f"🗯️ **{current['phrase']}**")
+@app.route("/slang/review")
+def get_review():
+    return jsonify(history[today]["review"])
 
-    if st.button("🔊 발음 듣기"):
-        audio_html = speak_in_browser(current["phrase"])
-        st.markdown(audio_html, unsafe_allow_html=True)
 
-    if st.button("📖 해석 보기"):
-        st.session_state.show_meaning = True
+@app.route("/slang/remember", methods=["POST"])
+def remember():
+    phrase = request.json.get("phrase")
+    matched = next((s for s in slangs if s["phrase"] == phrase), None)
+    if not matched:
+        return jsonify({"error": "슬랭을 찾을 수 없습니다."}), 404
+    history[today]["known"].append(matched)
+    save_user_history(history)
+    return jsonify({"status": "기억 완료"})
 
-    if st.session_state.show_meaning:
-        st.success(f"📖 해석: {current['meaning']}")
-        if "example" in current and not pd.isna(current["example"]):
-            st.markdown(f"💬 예문: *{current['example']}*")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("✅ 기억했어"):
-            history[today]["known"].append(current)
-            history[today]["viewed"].append(current["phrase"])
-            save_user_history(history)
-            del st.session_state["current"]
-            st.session_state.show_meaning = False
-            st.rerun()
-    with col2:
-        if st.button("🔁 복습할래"):
-            history[today]["review"].append(current)
-            history[today]["viewed"].append(current["phrase"])
-            save_user_history(history)
-            del st.session_state["current"]
-            st.session_state.show_meaning = False
-            st.rerun()
-else:
-    st.warning("오늘 모든 표현을 다 학습하셨습니다!")
+@app.route("/slang/repeat", methods=["POST"])
+def repeat():
+    phrase = request.json.get("phrase")
+    matched = next((s for s in slangs if s["phrase"] == phrase), None)
+    if not matched:
+        return jsonify({"error": "슬랭을 찾을 수 없습니다."}), 404
+    history[today]["review"].append(matched)
+    save_user_history(history)
+    return jsonify({"status": "복습 등록 완료"})
 
-st.markdown("---")
-st.markdown(f"✅ 오늘 외운 표현: {len(history[today]['known'])}개")
-st.markdown(f"🔁 복습할 표현: {len(history[today]['review'])}개")
 
-with st.expander("📋 복습/기억한 표현 보기"):
-    st.subheader("✅ 기억한 표현")
-    for item in history[today]["known"]:
-        st.markdown(f"- {item['phrase']} : {item['meaning']}")
-    st.subheader("🔁 복습할 표현")
-    for item in history[today]["review"]:
-        st.markdown(f"- {item['phrase']} : {item['meaning']}")
-
-# ✅ 퀴즈 모드
-if st.button("🧠 퀴즈 모드 시작"):
+@app.route("/quiz")
+def quiz():
     if len(history[today]["known"]) < 3:
-        st.warning("퀴즈를 시작하려면 최소 3개의 기억한 표현이 필요합니다.")
-    else:
-        st.session_state.quiz = generate_quiz(history[today]["known"])
-        st.session_state.quiz_active = True
-        st.session_state.quiz_result = None
+        return jsonify({"error": "퀴즈 시작에 필요한 최소 슬랭이 부족합니다."}), 400
+    q = generate_quiz(history[today]["known"])
+    return jsonify(q)
 
-# ✅ 퀴즈 실행 & 결과 유지
-if st.session_state.quiz_active and st.session_state.quiz:
-    quiz = st.session_state.quiz
-    st.markdown(f"**문제: {quiz['question']}의 의미는?**")
 
-    for i, option in enumerate(quiz["choices"], 1):
-        if st.button(f"{i}. {option}"):
-            if option == quiz["answer"]:
-                st.session_state.quiz_result = ("⭕ 정답입니다! 🎉", "success")
-            else:
-                st.session_state.quiz_result = (f"❌ 오답입니다. 정답은 👉 {quiz['answer']}", "error")
+@app.route("/tts")
+def tts():
+    phrase = request.args.get("phrase")
+    if not phrase:
+        return jsonify({"error": "문장을 입력해주세요."}), 400
+    mp3_data = speak(phrase)
+    return send_file(io.BytesIO(mp3_data), mimetype="audio/mpeg", as_attachment=False, download_name="tts.mp3")
 
-    if st.session_state.quiz_result:
-        msg, msg_type = st.session_state.quiz_result
-        if msg_type == "success":
-            st.success(msg)
-        else:
-            st.error(msg)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
