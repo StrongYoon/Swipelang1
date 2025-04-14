@@ -1,27 +1,28 @@
 from flask import Flask, jsonify, request, send_file
 from utils.data_manager import load_slang_data, load_user_history, save_user_history, get_today_key
 from utils.quiz_generator import generate_quiz
-from utils.tts import speak  # 기존 speak 함수 수정 필요
+from utils.tts import speak
 import random
 import io
 
 app = Flask(__name__)
 
+# 데이터 불러오기
 slangs = load_slang_data()
 history = load_user_history()
 today = get_today_key()
 
-# 초기화
+# 오늘 히스토리 초기화
 if today not in history:
     history[today] = {"known": [], "review": [], "viewed": []}
     save_user_history(history)
 
-
+# 기본 홈 라우트
 @app.route("/")
 def index():
     return jsonify({"message": "SwipeLang Flask API is running!"})
 
-
+# 오늘의 슬랭
 @app.route("/slang/today")
 def get_today_slang():
     available = [s for s in slangs if s["phrase"] not in history[today]["viewed"]]
@@ -32,17 +33,17 @@ def get_today_slang():
     save_user_history(history)
     return jsonify(current)
 
-
+# 기억한 슬랭
 @app.route("/slang/known")
 def get_known():
     return jsonify(history[today]["known"])
 
-
+# 복습할 슬랭
 @app.route("/slang/review")
 def get_review():
     return jsonify(history[today]["review"])
 
-
+# 기억 완료 처리
 @app.route("/slang/remember", methods=["POST"])
 def remember():
     phrase = request.json.get("phrase")
@@ -53,7 +54,7 @@ def remember():
     save_user_history(history)
     return jsonify({"status": "기억 완료"})
 
-
+# 복습 등록
 @app.route("/slang/repeat", methods=["POST"])
 def repeat():
     phrase = request.json.get("phrase")
@@ -64,7 +65,7 @@ def repeat():
     save_user_history(history)
     return jsonify({"status": "복습 등록 완료"})
 
-
+# 퀴즈 라우트
 @app.route("/quiz")
 def quiz():
     if len(history[today]["known"]) < 3:
@@ -72,15 +73,15 @@ def quiz():
     q = generate_quiz(history[today]["known"])
     return jsonify(q)
 
-
+# TTS 음성 반환
 @app.route("/tts")
 def tts():
     phrase = request.args.get("phrase")
     if not phrase:
         return jsonify({"error": "문장을 입력해주세요."}), 400
     mp3_data = speak(phrase)
-    return send_file(io.BytesIO(mp3_data), mimetype="audio/mpeg", as_attachment=False, download_name="tts.mp3")
+    return send_file(io.BytesIO(mp3_data), mimetype="audio/mpeg")
 
-
+# 서버 실행
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
