@@ -5,8 +5,10 @@ from utils.tts import speak
 import random
 import io
 import os
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 
 # 데이터 불러오기
 slangs = load_slang_data()
