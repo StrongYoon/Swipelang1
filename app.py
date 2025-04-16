@@ -69,6 +69,15 @@ def quiz():
     q = generate_quiz(history[today]["known"])
     return jsonify(q)
 
+@app.route("/stats")
+def stats():
+    nickname = request.args.get("nickname")
+    return jsonify({
+        "known": history[today]["known"],
+        "review": history[today]["review"]
+    })
+
+
 @app.route("/tts")
 def tts():
     phrase = request.args.get("phrase")
